@@ -57,12 +57,6 @@ package com.tanplayer.components
 	import flash.utils.setTimeout;
 	
 	//import plugins.CommentView;
-	
-
-	
-
-	
-	
 	public class ControlbarComponentV4 extends CoreComponent implements IControlbarComponent 
 	{
 		/** Reference to the original skin **/
@@ -157,8 +151,7 @@ package com.tanplayer.components
 			_player.addEventListener(PlaylistEvent.JWPLAYER_PLAYLIST_LOADED, itemHandler);
 			_player.addEventListener(PlaylistEvent.JWPLAYER_PLAYLIST_UPDATED, itemHandler);
 			_player.addEventListener(PlaylistEvent.JWPLAYER_PLAYLIST_ITEM, itemHandler);
-			
-			
+			_player.addEventListener(MediaEvent.M3U8_PLAY, M3u8PlayHandler);
 			
 			getSkinComponent('controlbarback').addEventListener(MouseEvent.MOUSE_MOVE,ControlBarMovHandler);
 	
@@ -192,7 +185,11 @@ package com.tanplayer.components
 			
 		}
 		
-		
+		private function M3u8PlayHandler(val:*):void
+		{
+			((_player as Player).view.components.display as DisplayComponent).clearDisplay();
+
+		}
 		
 		private function TimeSliderMoveHandler(e:MouseEvent):void
 		{

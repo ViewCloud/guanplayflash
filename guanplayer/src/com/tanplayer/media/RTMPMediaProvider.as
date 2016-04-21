@@ -198,6 +198,8 @@ package com.tanplayer.media
 		/** Load content. **/ //加载内容
 		override public function load(itm:PlaylistItem):void 
 		{
+			//联播bugcolowap
+			
 			_item = itm;
 			_position = 0;
 			_bufferFull = false;
@@ -259,7 +261,7 @@ package com.tanplayer.media
 			{
 				media = _video;
 			}
-			
+			//发送广告类型格式让场景添加
 			sendVideoLoadMediaEvent(MediaEvent.LOADEDJWPLAYER_MEDIA,null,"video");
 			_connection.connect(item.streamer);
 		}
@@ -407,7 +409,8 @@ package com.tanplayer.media
 		}
 		
 		/** Check if the level must be switched on resize. **/
-		override public function resize(width:Number, height:Number):void {
+		override public function resize(width:Number, height:Number):void 
+		{
 			super.resize(width, height);
 			if (state == PlayerState.PLAYING) {
 				if (item.levels.length > 0 && item.currentLevel != item.getLevel(config.bandwidth, config.width)) {
@@ -534,13 +537,7 @@ package com.tanplayer.media
 			{
 				case 'NetConnection.Connect.Success':
 					
-					
-					
-					
-					
-					
-					
-					if (evt.info.secureToken != undefined) 
+					if(evt.info.secureToken != undefined) 
 					{
 						_connection.call("secureTokenResponse", null, TEA.decrypt(evt.info.secureToken,
 							config.token));

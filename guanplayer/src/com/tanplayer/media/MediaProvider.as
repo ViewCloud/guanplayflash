@@ -425,6 +425,14 @@ package com.tanplayer.media
 				
 				_media.addChild(m);
 				
+				if(_provider=="m3u8")//绘制个假的 有大小就行
+				{
+					_media.graphics.beginFill(0x00ff00,0);
+					
+					_media.graphics.drawRect(0,0,RootReference._player.config.width,RootReference._player.config.height);
+					_media.graphics.endFill();
+				}
+				
 				if(_width*_height>0) 
 				{
 					Stretcher.stretch(_media, _width, _height, _config.stretching);

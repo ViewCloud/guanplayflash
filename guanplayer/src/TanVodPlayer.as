@@ -1,5 +1,6 @@
 package
 {
+	
 	import com.tanplayer.player.CallJSFunction;
 	import com.tanplayer.player.Player;
 	import com.tanplayer.utils.Configger;

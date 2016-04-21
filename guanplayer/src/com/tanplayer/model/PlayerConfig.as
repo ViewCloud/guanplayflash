@@ -106,6 +106,20 @@ package com.tanplayer.model {
 		
 		
 		
+		private var _streamtype:String="MP4";//流类型
+		
+		public function get streamtype():String
+		{
+			return _streamtype;
+		}
+		
+		public function set streamtype(val:String):void
+		{
+			_streamtype=val;
+		}
+		
+		
+		
 		public function get havead():Boolean
 		{
 			return _havead;

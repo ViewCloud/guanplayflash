@@ -1,81 +1,386 @@
-/**
- * Manages playback of http streaming flv.
- **/
-package com.tanplayer.media 
+package com.tanplayer.media
 {
+	import com.tanplayer.components.DisplayComponent;
 	import com.tanplayer.events.MediaEvent;
+	import com.tanplayer.events.PlayerEvent;
+	import com.tanplayer.model.Model;
 	import com.tanplayer.model.PlayerConfig;
 	import com.tanplayer.model.PlaylistItem;
+	import com.tanplayer.model.PlaylistItemLevel;
+	import com.tanplayer.player.JavascriptAPI;
+	import com.tanplayer.player.Player;
 	import com.tanplayer.player.PlayerState;
+	import com.tanplayer.utils.AssetLoader;
+	import com.tanplayer.utils.Configger;
+	import com.tanplayer.utils.Logger;
 	import com.tanplayer.utils.NetClient;
 	import com.tanplayer.utils.RootReference;
+	import com.tanplayer.utils.TEA;
 	
-	import flash.display.*;
+	import flash.display.DisplayObject;
+	import flash.display.Stage;
 	import flash.events.*;
-	import flash.external.ExternalInterface;
-	import flash.geom.Rectangle;
+	import flash.events.ErrorEvent;
+	import flash.events.NetStatusEvent;
 	import flash.media.*;
-	import flash.media.SoundTransform;
-	import flash.media.StageVideo;
-	import flash.media.StageVideoAvailability;
-	import flash.media.Video;
 	import flash.net.*;
-	import flash.net.URLLoader;
-	import flash.net.URLStream;
-	import flash.system.Security;
+	import flash.net.NetStream;
 	import flash.utils.*;
-	import flash.utils.getTimer;
-	import flash.utils.setTimeout;
 	
-	import org.mangui.hls.HLS;
-	import org.mangui.hls.HLSSettings;
-	import org.mangui.hls.event.HLSError;
-	import org.mangui.hls.event.HLSEvent;
-	import org.mangui.hls.model.AudioTrack;
-	import org.mangui.hls.model.Level;
-	import org.mangui.hls.utils.JSURLLoader;
-	import org.mangui.hls.utils.JSURLStream;
-	import org.mangui.hls.utils.Log;
-	import org.mangui.hls.utils.ScaleVideo;
+	import org.denivip.osmf.plugins.HLSPluginInfo;
+	import org.osmf.containers.MediaContainer;
+	import org.osmf.events.AlternativeAudioEvent;
+	import org.osmf.events.HTTPStreamingEvent;
+	import org.osmf.events.LoadEvent;
+	import org.osmf.events.MediaErrorEvent;
+	import org.osmf.events.MediaFactoryEvent;
+	import org.osmf.events.MediaPlayerCapabilityChangeEvent;
+	import org.osmf.events.MediaPlayerStateChangeEvent;
 	import org.osmf.events.TimeEvent;
+	import org.osmf.layout.HorizontalAlign;
+	import org.osmf.layout.LayoutMetadata;
+	import org.osmf.layout.LayoutMode;
+	import org.osmf.layout.ScaleMode;
+	import org.osmf.layout.VerticalAlign;
+	import org.osmf.logging.Log;
+	import org.osmf.media.DefaultMediaFactory;
+	import org.osmf.media.MediaElement;
+	import org.osmf.media.MediaFactory;
+	import org.osmf.media.MediaPlayer;
+	import org.osmf.media.MediaPlayerState;
+	import org.osmf.media.MediaResourceBase;
+	import org.osmf.media.PluginInfoResource;
+	import org.osmf.media.URLResource;
+	import org.osmf.net.NetStreamLoadTrait;
+	import org.osmf.net.StreamingItem;
+	import org.osmf.net.StreamingURLResource;
+	import org.osmf.traits.LoadState;
+	import org.osmf.traits.MediaTraitBase;
+	import org.osmf.traits.MediaTraitType;
+	import org.osmf.utils.OSMFSettings;
 	
 	
-	public class M3u8MediaProvider extends MediaProvider 
+	public class M3u8MediaProvider extends MediaProvider
 	{
-		/** NetConnection object for setup of the video stream. **/
+		/**
+		 * @private
+		 **/
+		private var player:MediaPlayer = null;
+		private var factory:MediaFactory = null;
+		private var container:MediaContainer = null;
+		private var stream:NetStream = null;
 		
-		/** Video object to be instantiated. **/
-		protected var _video:Video;
+		private var alternativeLanguage:int = -1;
+		private var dynamicStream:int = -1;
+		
+		private var seekedToLive:Boolean = false;
+		
+		private var latestSeekTarget:Number;
+		
+		
+		
+		
+		
+		
+		private function onPluginLoaded(event:MediaFactoryEvent):void
+		{
+			trace("Plugin successed to load.");
+		}
+		
+		private function onPluginLoadError(event:MediaFactoryEvent):void
+		{
+			trace("Plugin failed to load.");
+			
+		}
+		
+		private function onPlayPauseClick(event:MouseEvent):void
+		{
+			if (!player.playing)
+			{
+				if (player.canPlay)
+				{
+					player.play();
+					sendMediaEvent(MediaEvent.M3U8_PLAY,null);
+					setState(PlayerState.PLAYING);
+				}
+					
+			}
+			else
+			{
+				if (player.canPause)
+					player.pause();
+			}
+		}
+		
+		private static const HIGH_PRIORITY:int = int.MAX_VALUE;
+		
+		private function onLoadStateChange(e:LoadEvent):void
+		{
+			trace("OnLoadStateChange - " + e.loadState);
+			
+			if (e.loadState == LoadState.READY)
+			{
+//				if(	_autoPlay)
+//				{
+				onPlayPauseClick(null);
+//				}
+				
+				var nsLoadTrait:NetStreamLoadTrait = player.media.getTrait(MediaTraitType.LOAD) as NetStreamLoadTrait;
+				stream = nsLoadTrait.netStream;
+				trace("* add download error listener");
+				//stream.addEventListener(HTTPStreamingEvent.DOWNLOAD_ERROR, onDownloadError);
+				stream.addEventListener(NetStatusEvent.NET_STATUS, onNetStatus, false, HIGH_PRIORITY, true);
+				//stream.addEventListener(IOErrorEvent.IO_ERROR, onError, false, HIGH_PRIORITY, true);
+				trace( "NetStream Type: " + flash.utils.getQualifiedClassName( stream ) );
+				
+				//stream.receiveVideo(false);
+			}
+		}
+		
+		
+		
+		private function onNetStatus(event:NetStatusEvent):void
+		{
+			var currentTime:Date = new Date();
+			trace("NetStatus event:" + event.info.code + "[" + currentTime + "]");
+			
+			if(event.info.code == "NetStream.Seek.Notify"){
+				var timeDiff:Number = Math.abs(player.currentTime - latestSeekTarget);
+				if(timeDiff > 0.1)
+					player.seek(latestSeekTarget);
+			}
+			
+		}
+		
+		/**
+		 * @private
+		 * Clears existing resource.
+		 **/			
+		private function unloadResource():void
+		{
+			if (player.canPlay && player.state == MediaPlayerState.PLAYING)
+				player.stop();
+			
+			player.media = null;
+		}
+		
+		/**
+		 * @private
+		 * Create a resource from the specified url.
+		 **/
+		private function createResource(url:String):void
+		{
+			
+		}
+		
+		//获取总时间
+		private function onDurationChange(event:TimeEvent):void
+		{
+			if (player.temporal)
+			{
+				trace("dsf"+player.duration);
+				
+				//RootReference._player.playlist.currentItem.duration=player.duration;
+				
+			}
+		}
+		
+		/**
+		 * @private
+		 * Track when the player is capable to play in order to enable UI.
+		 */
+		private function onPlayerCanPlayChange(event:MediaPlayerCapabilityChangeEvent):void
+		{
+			//updateUI();
+		}
+		
+		/**
+		 * @private
+		 * Called when the player current time has changed. We update the slider position.
+		 **/
+		private function onPlayerCurrentTimeChange(event:TimeEvent):void
+		{
+			//每
+			
+//			if (event.time >= sldSeek.minimum && event.time <= sldSeek.maximum) 
+//			{
+//				sldSeek.value = event.time;
+//				lblTime.text = Number(event.time).toFixed(3);
+//				
+//				
+//				if (stream != null)
+//				{
+//					if (player.state != MediaPlayerState.BUFFERING)
+//						stream.bufferTime = player.bufferTime;
+//					else
+//						stream.bufferTime = 2;
+//				}
+//			}
+			//item.duration
+			
+//			if(item!=null)
+//			{
+//				sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_TIME, {position: event.time, duration:player.duration , offset: _timeoffset});
+//				
+//			}
+			
+		}
+		
+		/**
+		 * @private
+		 * When the player is ready for playback, iterate through alternate
+		 * audio tracks and update the UI.
+		 **/
+		private function onPlayerStateChange(event:MediaPlayerStateChangeEvent):void
+		{
+			
+			
+		}
+		
+		/**
+		 * @private
+		 * Executed when player encounters an error.
+		 **/
+		private function onPlayerError(event:MediaErrorEvent):void
+		{
+			//updateUI();
+		}
+		
+		
+		
+		
+		
+		private function onSeekRequest():void
+		{
+			//			var seekTarget:Number = sldSeek.value;
+			//			latestSeekTarget = seekTarget;
+			//			
+			//			if (player.canSeek)
+			//				player.seek(seekTarget);
+		}
+		
+		private function onAutoRewindChange(event:Event):void
+		{
+			//player.autoRewind = chkAutoRewind.selected;
+		}
+		
+		private function onAutoSwitchChange(event:Event):void
+		{
+			//player.autoDynamicStreamSwitch = chkAutoSwitch.selected;
+		}
+		
+		/**
+		 * @private
+		 * Listen for audio stream events.
+		 **/
+		private function onPlayerAudioStreamChange(event:AlternativeAudioEvent):void
+		{
+			if (event.switching)
+				trace("[LBA - Sample] Alternative audio stream is switching.");
+			else
+				trace("[LBA - Sample] Alternative audio switch is complete.");
+		}
+		
+		/**
+		 * Returns the highest level Resource of a Specific type by traversing the proxiedElement parent chain.
+		 */ 		
+		public static function getResourceFromParentOfType(media:MediaElement, type:Class):MediaResourceBase
+		{
+			// If the current element is a proxy element, go up
+			var result:MediaResourceBase = null;
+			if (media.hasOwnProperty("proxiedElement") && (media["proxiedElement"] != null))
+			{
+				result = getResourceFromParentOfType(media["proxiedElement"], type);
+			}			
+			
+			// If we didn't get any result from a higher level proxy
+			// and the current media is of the needed type, return it.
+			if (result == null && media.resource is type)
+			{
+				result = media.resource;
+			}
+			
+			return result;
+		}
+		
+		public static function getStreamType1(media:MediaElement):String
+		{
+			if (media == null)
+			{
+				return null;
+			}
+			
+			var streamingURLResource:StreamingURLResource = getResourceFromParentOfType(media, StreamingURLResource) as StreamingURLResource;			
+			
+			if (streamingURLResource != null)
+			{
+				return streamingURLResource.streamType;						
+			}
+			return null;			
+		}
+		
+		public function getStreamType():String
+		{
+			return getStreamType1(player.media);
+		}
+		
+		//trace( "---> " + getStreamType() );
+		//trace( "---> " + flash.utils.getQualifiedClassName( element ) );
+		
+		private function onCheckClick(event:MouseEvent):void
+		{
+			trace("----------");
+			trace("* BufferTime: " + player.bufferTime);
+			trace("* bufferLength: " + player.bufferLength);
+			trace("* NS BufferTime: " + stream.bufferTime);
+			trace("* NS bufferLength: " + stream.bufferLength);
+			//trace("* Current State? " + player.state + ", " + listResources.selectedItem["data"]);
+			//stream.maxPauseBufferTime = 1000;
+			//b.bufferTime = 350;
+			
+			/*
+			var d:MediaTraitBase = player.media.getTrait("dynamicStream");
+			trace( "dynamicStream TraitType: " + flash.utils.getQualifiedClassName( d ) );
+			
+			var l:MediaTraitBase = player.media.getTrait("load");
+			trace( "load TraitType: " + flash.utils.getQualifiedClassName( l ) );
+			*/
+		}
+		
+		private function onSetupClick(event:MouseEvent):void
+		{
+			var element:MediaElement = player.media;
+			for (var i:uint; i < element.traitTypes.length; i++) {
+				trace(element.traitTypes[i]);
+			}
+			
+			var d:MediaTraitBase = player.media.getTrait("displayObject");
+			trace( "displayObject TraitType: " + flash.utils.getQualifiedClassName( d ) );
+		}
+		
+		
+		
+		
+		
+		//protected var _video:Video;
+		
 		/** Sound control object. **/
 		protected var _transformer:SoundTransform;
-		/** ID for the _position interval. **/
-		
-		/** Save whether metadata has already been sent. **/
-		protected var _meta:Boolean;
-		/** Object with keyframe times and positions. **/
-		protected var _keyframes:Object;
-		/** Offset in bytes of the last seek. **/
-		protected var _byteoffset:Number = 0;
-		/** Offset in seconds of the last seek. **/
-		protected var _timeoffset:Number = 0;
-		/** Boolean for mp4 / flv streaming. **/
-		protected var _mp4:Boolean;
-		/** Variable that takes reloading into account. **/
-		protected var _iterator:Number;
-		/** Start parameter. **/
-		private var _startparam:String = 'start';
+		/** ID for the position interval. **/
+		protected var _positionInterval:Number;
+		/** Currently playing file. **/
+		protected var _currentFile:String;
 		/** Whether the buffer has filled **/
 		private var _bufferFull:Boolean;
 		/** Whether the enitre video has been buffered **/
 		private var _bufferingComplete:Boolean;
 		/** Whether we have checked the bandwidth. **/
-		private var _bandwidthSwitch:Boolean = true;
-		/** Whether we have checked bandwidth **/
 		private var _bandwidthChecked:Boolean;
-		/** Bandwidth check delay **/
-		private var _bandwidthDelay:Number = 2000;
-		/** Bandwidth timeout id **/
-		private var _bandwidthTimeout:uint;
+		/** Whether to switch on bandwidth detection **/
+		private var _bandwidthSwitch:Boolean = true;
+		/** Bandwidth check interval **/
+		private var _bandwidthTimeout:Number = 2000;
+		
 		
 		/** Constructor; sets up the connection and display. **/
 		public function M3u8MediaProvider() 
@@ -83,526 +388,161 @@ package com.tanplayer.media
 			super('m3u8');
 		}
 		
+			
+		/** Interval for bw checking - with dynamic streaming. **/
+		private var _bandwidthInterval:Number;
+		/** Whether to connect to a stream when bandwidth is detected. **/
 		
-		public var fastSlowTimer:Timer= new Timer(nx);
+		/** Is dynamic streaming possible. **/
+		private var _dynamic:Boolean;
+		/** The currently playing RTMP stream. **/
 		
+		/** Loaders for loading SMIL files. **/
+		private var _xmlLoaders:Dictionary;
 		
+		/** Interval ID for subscription pings. **/
+		private var _subscribeInterval:Number;
+		/** Offset in seconds of the last seek. **/
+		private var _timeoffset:Number = -1;
+		/** Sound control object. **/
 		
+		/** Save that a stream is streaming. **/
+		private var _isStreaming:Boolean;
+		/** Level to which we're transitioning. **/
+		private var _transitionLevel:Number = -1;
+		/** Video object to be instantiated. **/
 		
-		public function StartFastPlay():void
+		/** Duration of the DVR stream (grows with a timer). **/
+		private var _dvrDuration:Number = 0;
+		/** Total duration of the DVR stream (set by configuration). **/
+		private var _dvrTotalDuration:Number = 0;
+		/** If the item's duration should be set back to 0 on load. **/
+		private var _dvrResetDuration:Boolean = false;
+		/** How long to wait between updates to DVR duration **/
+		private var _dvrCheckDelay:Number = 1000;
+		/** Interval ID for growing the DVR duration. **/
+		private var _dvrInterval:Number;
+		/** Whether we should pause the stream when we first connect to it **/
+		private var	_lockOnStream:Boolean = false;
+		
+		public function M3u8MediaInit():void
 		{
-			seekint=10;
-			fastSlowTimer.start();
+			Log.loggerFactory = new SimpleLoggerFactory(); 
+			
+			OSMFSettings.enableStageVideo = false;
+			trace("* Maxium Retries: " + OSMFSettings.hdsMaximumRetries);
+			//OSMFSettings.hdsMaximumRetries = 10;
+			
+			// factory
+			factory = new DefaultMediaFactory();
+			
+			factory.addEventListener(MediaFactoryEvent.PLUGIN_LOAD, onPluginLoaded);
+			factory.addEventListener(MediaFactoryEvent.PLUGIN_LOAD_ERROR, onPluginLoadError);
+			factory.loadPlugin(new PluginInfoResource(new HLSPluginInfo()));
+			
+			
+			// player
+			player = new MediaPlayer();
+			player.autoPlay = false;
+			player.autoRewind = true;
+			player.addEventListener(MediaPlayerStateChangeEvent.MEDIA_PLAYER_STATE_CHANGE, onPlayerStateChange);
+			player.addEventListener(MediaPlayerCapabilityChangeEvent.CAN_PLAY_CHANGE, onPlayerCanPlayChange);
+			player.addEventListener(TimeEvent.DURATION_CHANGE, onDurationChange);
+			player.addEventListener(TimeEvent.CURRENT_TIME_CHANGE, onPlayerCurrentTimeChange);
+			player.addEventListener(AlternativeAudioEvent.AUDIO_SWITCHING_CHANGE, onPlayerAudioStreamChange);
+			player.addEventListener(MediaErrorEvent.MEDIA_ERROR, onPlayerError);
+			player.addEventListener(LoadEvent.LOAD_STATE_CHANGE, onLoadStateChange);
+			
+			// container
+			container = new MediaContainer();
 		}
 		
-		public function StartSlowPlay():void
-		{
-			seekint=-10;
-			fastSlowTimer.start();
-		}
 		
-//==================m3u8==========================================		
+		/** Constructor; sets up the connection and display. **/
 		public override function initializeMediaProvider(cfg:PlayerConfig):void 
 		{
-			RootReference.stage.addEventListener(StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY, _onStageVideoState);
-			
 			super.initializeMediaProvider(cfg);
-			_tanhls = new HLS();
-			fastSlowTimer.addEventListener(TimerEvent.TIMER,FastPlayHandler);
+			
+			
+			
 		}
 		
-		protected var _tanhls : HLS;
-		/** Sheet to place on top of the video. **/
-		protected var _sheet : Sprite;
-		/** Reference to the stage video element. **/
-		protected var _stageVideo : StageVideo = null;
-		/** Reference to the video element. **/
-		
-		/** Video size **/
-		protected var _videoWidth : int = 0;
-		protected var _videoHeight : int = 0;
-		/** current media position */
-		protected var _mediaPosition : Number;
-		protected var _duration : Number;
-		/** URL autoload feature */
-		
-		/* JS callback name */
-		protected var _callbackName : String;
-		/* stats handler */
-		private var _statsHandler :M3u8StatsHandler;
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-	
-		
-		protected function _trigger(event : String, ...args) : void 
+		/** Get metadata information from netstream class. **/
+		public function onClientData(dat:Object=null):void 
 		{
-			//trace("args:::::::"+args);
-		}
-		
-		/** Notify javascript the framework is ready. **/
-		protected function _pingJavascript() : void {
-			trace("ready", getTimer());
-		};
-		
-		/** Forward events from the framework. **/
-		protected function _completeHandler(event : HLSEvent) : void {
-			trace("complete");
-		};
-		
-		protected function _errorHandler(event : HLSEvent) : void 
-		{
-			var hlsError : HLSError = event.error;
-			trace("error", hlsError.code, hlsError.url, hlsError.msg);
-		};
-		
-		protected function _levelLoadedHandler(event : HLSEvent) : void {
-			trace("levelLoaded", event.loadMetrics);
-		};
-		
-		protected function _audioLevelLoadedHandler(event : HLSEvent) : void {
-			trace("audioLevelLoaded", event.loadMetrics);
-		};
-		
-		protected function _fragmentLoadedHandler(event : HLSEvent) : void {
-			trace("fragmentLoaded", event.loadMetrics);
-		};
-		
-		protected function _fragmentPlayingHandler(event : HLSEvent) : void {
-			trace("fragmentPlaying", event.playMetrics);
-		};
-		
-		protected function _manifestLoadedHandler(event : HLSEvent) : void 
-		{
-			item.duration = event.levels[_tanhls.startLevel].duration;
+			//resize(_width, _height);
+			//colowap
 			
-			_tanhls.stream.play(null, -1);
+            
 			
 			
-			trace("manifest", _duration, event.levels, event.loadMetrics);
-		};
-		
-		protected function _mediaTimeHandler(event : HLSEvent) : void 
-		{
-			//trace("每");
-			_duration = event.mediatime.duration;
-			_mediaPosition = event.mediatime.position;
-			//trace("position", event.mediatime);
+			if (!dat) return;
+			if (dat.width) 
+			{
+				_video.width = dat.width;
+				_video.height = dat.height;
+				
+				resize(_width, _height);
+			}
+			
+			if (dat['duration'] && item.duration <= 0) 
+			{
+				item.duration = dat['duration'];
+				//trace(item.duration);
+			}
 			
 			
-			
-			
-			//			//_position = Math.round(_stream.time * 10) / 10;
-			//			var percentoffset:Number;
-			//			if (_mp4) 
-			//			{
-			//				_position += _timeoffset;
-			//			}
-			//			
-			//			var bufferPercent:Number;
-			//			var bufferFill:Number;
-			//			if (item.duration > 0) {
-			//				percentoffset =  Math.round(_timeoffset /  item.duration * 100);
-			//				bufferPercent = (_stream.bytesLoaded / _stream.bytesTotal) * (1 - _timeoffset / item.duration) * 100;
-			//				var bufferTime:Number = _stream.bufferTime < (item.duration - position) ? _stream.bufferTime : Math.round(item.duration - position);
-			//				bufferFill = _stream.bufferTime == 0 ? 0 : Math.ceil(_stream.bufferLength / bufferTime * 100);
-			//			} else {
-			//				percentoffset = 0;
-			//				bufferPercent = 0;
-			//				bufferFill = _stream.bufferLength/_stream.bufferTime * 100;
-			//			}
-			//			
-			//			if (!_bandwidthChecked && _stream.bytesLoaded > 0 && _stream.bytesLoaded < _stream.bytesTotal) {
-			//				_bandwidthChecked = true;
-			//				clearTimeout(_bandwidthTimeout);
-			//				_bandwidthTimeout = setTimeout(checkBandwidth, _bandwidthDelay, _stream.bytesLoaded);
-			//			}
-			//			
-			//			if (bufferFill < 25 && state == PlayerState.PLAYING) {
-			//				_bufferFull = false;
-			//				_stream.pause();
-			//				setState(PlayerState.BUFFERING);
-			//			} else if (bufferFill > 95 && state == PlayerState.BUFFERING && _bufferFull == false) {
-			//				_bufferFull = true;
-			//				sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_BUFFER_FULL);
-			//			}
-			//			
-			//			if (!_bufferingComplete) {
-			//				if ((bufferPercent + percentoffset) == 100 && _bufferingComplete == false) {
-			//					_bufferingComplete = true;
-			//				}
-			//				sendBufferEvent(bufferPercent, _timeoffset);
-			//			}
-			//			
-			//			if (state != PlayerState.PLAYING) {
-			//				return;
-			//			}
-			//			
-			//			if (_position < item.duration) 
-			//			{
-			//				if (_position >= 0) 
-			//				{
-			//					//每
-			//					//trace("item._position:::"+_position);
-		//	sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_TIME, {position: _mediaPosition, duration: _duration, offset: _timeoffset});
-			//				}
-			//			} 
-			//			else if (item.duration > 0) 
-			//			{
-			//				// Playback completed
-			//				complete();
-			//			}
-			
-			
-			
-			
-			
-			
-			
-			
-			var videoWidth : int = _video ? _video.videoWidth : _stageVideo.videoWidth;
-			var videoHeight : int = _video ? _video.videoHeight : _stageVideo.videoHeight;
-			
-			if (videoWidth && videoHeight) {
-				var changed : Boolean = _videoWidth != videoWidth || _videoHeight != videoHeight;
-				if (changed) {
-					_videoHeight = videoHeight;
-					_videoWidth = videoWidth;
-					//_resize();
-					_trigger("videoSize", _videoWidth, _videoHeight);
+			if (dat['type'] == 'metadata' && !_meta) 
+			{
+				_meta = true;
+				if (dat['seekpoints'])
+				{
+					_mp4 = true;
+					_keyframes = convertSeekpoints(dat['seekpoints']);
+				} else {
+					_mp4 = false;
+					_keyframes = dat['keyframes'];
+				}
+				if (item.start > 0) {
+					seek(item.start);
 				}
 			}
+			sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_META, {metadata: dat});
 		}
 		
-		protected function _playbackStateHandler(event : HLSEvent) : void 
-		{
-			trace("state;;;;;;", event.state);
-			if(event.state=="PLAYING_BUFFERING")
-			{
-				setState(PlayerState.BUFFERING);
-			}
-			else if(event.state=="PLAYING")
-			{
-				setState(PlayerState.PLAYING);
-			}
-		}
-		
-		protected function _seekStateHandler(event : HLSEvent) : void 
-		{
-			trace("seekState", event.state);
-			if(event.state=="IDLE")
-			{
-				stop();
-			}
-		}
-		
-		protected function _levelSwitchHandler(event : HLSEvent) : void {
-			trace("当前切换到的码率级别", event.level);
-		};
-		
-		protected function _fpsDropHandler(event : HLSEvent) : void {
-			trace("fpsDrop", event.level);
-		};
-		
-		protected function _fpsDropLevelCappingHandler(event : HLSEvent) : void {
-			trace("fpsDropLevelCapping", event.level);
-		};
-		
-		protected function _fpsDropSmoothLevelSwitchHandler(event : HLSEvent) : void {
-			trace("fpsDropSmoothLevelSwitch");
-		};
-		
-		protected function _audioTracksListChange(event : HLSEvent) : void {
-			trace("audioTracksListChange", _getAudioTrackList());
-		}
-		
-		protected function _audioTrackChange(event : HLSEvent) : void {
-			trace("audioTrackChange", event.audioTrack);
-		}
-		
-		protected function _id3Updated(event : HLSEvent) : void {
-			trace("id3Updated", event.ID3Data);
-		}
-		
-		/** Javascript getters. **/
-		protected function _getCurrentLevel() : int {
-			return _tanhls.currentLevel;
-		};
-		
-		protected function _getNextLevel() : int {
-			return _tanhls.nextLevel;
-		};
-		
-		protected function _getLoadLevel() : int {
-			return _tanhls.loadLevel;
-		};
-		
-		protected function _getLevels() : Vector.<Level> {
-			return _tanhls.levels;
-		};
-		
-		protected function _getAutoLevel() : Boolean {
-			return _tanhls.autoLevel;
-		};
-		
-		protected function _getDuration() : Number {
-			return _duration;
-		};
-		
-		protected function _getPosition() : Number {
-			return _tanhls.position;
-		};
-		
-		protected function _getPlaybackState() : String {
-			return _tanhls.playbackState;
-		};
-		
-		protected function _getSeekState() : String {
-			return _tanhls.seekState;
-		};
-		
-		
-		
-		protected function _getminBufferLength() : Number {
-			return HLSSettings.minBufferLength;
-		};
-		
-		protected function _getlowBufferLength() : Number {
-			return HLSSettings.lowBufferLength;
-		};
-		
-		protected function _getmaxBackBufferLength() : Number {
-			return HLSSettings.maxBackBufferLength;
-		};
-		
-		protected function _getflushLiveURLCache() : Boolean {
-			return HLSSettings.flushLiveURLCache;
-		};
-		
-		protected function _getstartFromLevel() : int {
-			return HLSSettings.startFromLevel;
-		};
-		
-		protected function _getseekFromLevel() : int {
-			return HLSSettings.seekFromLevel;
-		};
-		
-		protected function _getLogDebug() : Boolean {
-			return HLSSettings.logDebug;
-		};
-		
-		protected function _getLogDebug2() : Boolean {
-			return HLSSettings.logDebug2;
-		};
-		
-		protected function _getUseHardwareVideoDecoder() : Boolean {
-			return HLSSettings.useHardwareVideoDecoder;
-		};
-		
-		protected function _getCapLeveltoStage() : Boolean {
-			return HLSSettings.capLevelToStage;
-		};
-		
-		protected function _getAutoLevelCapping() : int {
-			return _tanhls.autoLevelCapping;
-		};
-		
-		protected function _getJSURLStream() : Boolean {
-			return (_tanhls.URLstream is JSURLStream);
-		};
-		
-		protected function _getPlayerVersion() : Number {
-			return 3;
-		};
-		
-		protected function _getAudioTrackList() : Array {
-			var list : Array = [];
-			var vec : Vector.<AudioTrack> = _tanhls.audioTracks;
-			for (var i : Object in vec) {
-				list.push(vec[i]);
-			}
-			return list;
-		};
-		
-		protected function _getAudioTrackId() : int {
-			return _tanhls.audioTrack;
-		};
-		
-		protected function _getStats() : Object {
-			return _statsHandler.stats;
-		};
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		protected function _setCurrentLevel(level : int) : void {
-			_tanhls.currentLevel = level;
-		};
-		
-		protected function _setNextLevel(level : int) : void {
-			_tanhls.nextLevel = level;
-		};
-		
-		protected function _setLoadLevel(level : int) : void {
-			_tanhls.loadLevel = level;
-		};
-		
-		protected function _setmaxBufferLength(newLen : Number) : void {
-			HLSSettings.maxBufferLength = newLen;
-		};
-		
-		protected function _setminBufferLength(newLen : Number) : void {
-			HLSSettings.minBufferLength = newLen;
-		};
-		
-		protected function _setlowBufferLength(newLen : Number) : void {
-			HLSSettings.lowBufferLength = newLen;
-		};
-		
-		protected function _setbackBufferLength(newLen : Number) : void {
-			HLSSettings.maxBackBufferLength = newLen;
-		};
-		
-		protected function _setflushLiveURLCache(flushLiveURLCache : Boolean) : void {
-			HLSSettings.flushLiveURLCache = flushLiveURLCache;
-		};
-		
-		protected function _setstartFromLevel(startFromLevel : int) : void 
-		{
-			HLSSettings.startFromLevel = startFromLevel;
-		};
-		
-		protected function _setseekFromLevel(seekFromLevel : int) : void 
-		{
-			HLSSettings.seekFromLevel = seekFromLevel;
-		};
-		
-		protected function _setLogDebug(debug : Boolean) : void 
-		{
-			HLSSettings.logDebug = debug;
-		}
-		
-		protected function _setLogDebug2(debug2 : Boolean) : void 
-		{
-			HLSSettings.logDebug2 = debug2;
-		}
-		
-		protected function _setUseHardwareVideoDecoder(value : Boolean) : void
-		{
-			HLSSettings.useHardwareVideoDecoder = value;
-		}
-		
-		protected function _setCapLeveltoStage(value : Boolean) : void{
-			HLSSettings.capLevelToStage = value;
-		}
-		
-		protected function _setAutoLevelCapping(value : int) : void{
-			_tanhls.autoLevelCapping = value;
-		}
-		
-		protected function _setJSURLStream(jsURLstream : Boolean) : void 
-		{
-			if (jsURLstream) {
-				_tanhls.URLstream = JSURLStream as Class;
-				_tanhls.URLloader = JSURLLoader as Class;
-				if (_callbackName) {
-					_tanhls.URLstream.externalCallback = _callbackName;
-					_tanhls.URLloader.externalCallback = _callbackName;
-				}
-			} else {
-				_tanhls.URLstream = URLStream as Class;
-				_tanhls.URLloader = URLLoader as Class;
-			}
-		};
-		
-		protected function _setAudioTrack(val : int) : void 
-		{
-			if (val == _tanhls.audioTrack) return;
-			_tanhls.audioTrack = val;
-			if (!isNaN(_mediaPosition)) {
-				_tanhls.stream.seek(_mediaPosition);
-			}
-		};
-		
+
+		
+		
+		/** Video object to be instantiated. **/
+		protected var _video:Video;
+		/** Sound control object. **/
+		
+		/** Save whether metadata has already been sent. **/
+		protected var _meta:Boolean;
+		/** Object with keyframe times and positions. **/
+		protected var _keyframes:Object;
+		/** Offset in bytes of the last seek. **/
+		protected var _byteoffset:Number = 0;
 	
+		/** Boolean for mp4 / flv streaming. **/
+		protected var _mp4:Boolean;
+		/** Variable that takes reloading into account. **/
+		protected var _iterator:Number;
+		/** Start parameter. **/
+		private var _startparam:String = 'start';
+		/** Whether the buffer has filled **/
 		
-		/** StageVideo detector. **/
-		protected function _onStageVideoState(event : StageVideoAvailabilityEvent) : void 
-		{
-			var available : Boolean = (event.availability == StageVideoAvailability.AVAILABLE);
-			
-			_tanhls.stage = RootReference.stage;
-			// set framerate to 60 fps
-			//stage.frameRate = 60;
-			// set up stats handler
-			_statsHandler = new M3u8StatsHandler(_tanhls);
-			_tanhls.addEventListener(HLSEvent.PLAYBACK_COMPLETE, _completeHandler);
-			_tanhls.addEventListener(HLSEvent.ERROR, _errorHandler);
-			_tanhls.addEventListener(HLSEvent.FRAGMENT_LOADED, _fragmentLoadedHandler);
-			_tanhls.addEventListener(HLSEvent.AUDIO_LEVEL_LOADED, _audioLevelLoadedHandler);
-			_tanhls.addEventListener(HLSEvent.LEVEL_LOADED, _levelLoadedHandler);
-			_tanhls.addEventListener(HLSEvent.FRAGMENT_PLAYING, _fragmentPlayingHandler);
-			_tanhls.addEventListener(HLSEvent.MANIFEST_LOADED, _manifestLoadedHandler);
-			_tanhls.addEventListener(HLSEvent.MEDIA_TIME, _mediaTimeHandler);
-			_tanhls.addEventListener(HLSEvent.PLAYBACK_STATE, _playbackStateHandler);
-			_tanhls.addEventListener(HLSEvent.SEEK_STATE, _seekStateHandler);
-			_tanhls.addEventListener(HLSEvent.LEVEL_SWITCH, _levelSwitchHandler);
-			_tanhls.addEventListener(HLSEvent.AUDIO_TRACKS_LIST_CHANGE, _audioTracksListChange);
-			_tanhls.addEventListener(HLSEvent.AUDIO_TRACK_SWITCH, _audioTrackChange);
-			_tanhls.addEventListener(HLSEvent.ID3_UPDATED, _id3Updated);
-			_tanhls.addEventListener(HLSEvent.FPS_DROP, _fpsDropHandler);
-			_tanhls.addEventListener(HLSEvent.FPS_DROP_LEVEL_CAPPING, _fpsDropLevelCappingHandler);
-			_tanhls.addEventListener(HLSEvent.FPS_DROP_SMOOTH_LEVEL_SWITCH, _fpsDropSmoothLevelSwitchHandler);
-			
-			HLSSettings.flushLiveURLCache=true;
-			
-			if (available && RootReference.stage.stageVideos.length > 0)
-			{
-				_stageVideo = RootReference.stage.stageVideos[0];
-				_stageVideo.addEventListener(StageVideoEvent.RENDER_STATE, _onStageVideoStateChange)
-				_stageVideo.viewPort = new Rectangle(0, 0, RootReference.stage.stageWidth, RootReference.stage.stageHeight);
-				_stageVideo.attachNetStream(_tanhls.stream);
-			} 
-			else 
-			{
-				_video = new Video(RootReference.stage.stageWidth, RootReference.stage.stageHeight);
-				_video.addEventListener(VideoEvent.RENDER_STATE, _onVideoStateChange);
-			
-				_video.smoothing = true;
-				_video.attachNetStream(_tanhls.stream);
-			}
-			
-			RootReference.stage.removeEventListener(StageVideoAvailabilityEvent.STAGE_VIDEO_AVAILABILITY, _onStageVideoState);
-		}
+		/** Bandwidth check delay **/
+		private var _bandwidthDelay:Number = 2000;
 		
-		private function _onStageVideoStateChange(event : StageVideoEvent) : void 
-		{
-			Log.info("Video decoding:" + event.status);
-		}
 		
-		private function _onVideoStateChange(event : VideoEvent) : void
-		{
-			Log.info("Video decoding:" + event.status);
-		}
 		
-//========================m3u8==================================		
+		
+		
+		
+		
+		
+		
 		
 		
 		
@@ -623,13 +563,11 @@ package com.tanplayer.media
 		}
 		
 		/** Convert seekpoints to keyframes. **/
-		protected function convertSeekpoints(dat:Object):Object 
-		{
+		protected function convertSeekpoints(dat:Object):Object {
 			var kfr:Object = new Object();
 			kfr.times = new Array();
 			kfr.filepositions = new Array();
-			for (var j:String in dat) 
-			{
+			for (var j:String in dat) {
 				kfr.times[j] = Number(dat[j]['time']);
 				kfr.filepositions[j] = Number(dat[j]['offset']);
 			}
@@ -641,7 +579,33 @@ package com.tanplayer.media
 			error(evt.text);
 		}
 		
-		
+		/** Bandwidth is checked as long the stream hasn't completed loading. **/
+		private function checkBandwidth(lastLoaded:Number):void 
+		{
+//			var currentLoaded:Number = _stream.bytesLoaded;
+//			var bandwidth:Number = Math.ceil((currentLoaded - lastLoaded) / 1024) * 8 / (_bandwidthDelay / 1000);
+//			
+//			if (currentLoaded < _stream.bytesTotal) {
+//				if (bandwidth > 0) {
+//					config.bandwidth = bandwidth;
+//					var obj:Object = {bandwidth:bandwidth};
+//					if (item.duration > 0) {
+//						obj.bitrate = Math.ceil(_stream.bytesTotal / 1024 * 8 / item.duration);
+//					}
+//					sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_META, {metadata: obj});
+//				}
+//				if (_bandwidthSwitch) {
+//					_bandwidthSwitch = false;
+//					_bandwidthChecked = false;
+//					if (item.currentLevel != item.getLevel(config.bandwidth, config.width)) {
+//						load(item);
+//						return;
+//					}
+//				}
+//				clearTimeout(_bandwidthTimeout);
+//				_bandwidthTimeout = setTimeout(checkBandwidth, _bandwidthDelay, currentLoaded);
+//			}
+		}
 		
 		/** Return a keyframe byteoffset or timeoffset. **/
 		protected function getOffset(pos:Number, tme:Boolean=false):Number {
@@ -672,8 +636,7 @@ package com.tanplayer.media
 			}
 			if (item.streamer)
 			{
-				if (item.streamer.indexOf('/') > 0) 
-				{
+				if (item.streamer.indexOf('/') > 0) {
 					url = item.streamer;
 					url = getURLConcat(url, 'file', item.file);
 				} else {
@@ -706,7 +669,30 @@ package com.tanplayer.media
 		/** Load content. **/
 		override public function load(itm:PlaylistItem):void 
 		{
-			_video.clear();
+			//colowap联播问题bug
+			var res:URLResource = new URLResource(itm.file);
+			var element:MediaElement = factory.createMediaElement(res);
+			
+			var elementLayout:LayoutMetadata = new LayoutMetadata();
+			elementLayout.percentHeight = 100;
+			elementLayout.percentWidth = 100;
+			elementLayout.scaleMode = ScaleMode.LETTERBOX;
+			elementLayout.layoutMode = LayoutMode.NONE;
+			elementLayout.verticalAlign = VerticalAlign.MIDDLE;
+			elementLayout.horizontalAlign = HorizontalAlign.CENTER;
+			
+			elementLayout.width=RootReference._player.config.width;
+			elementLayout.height=RootReference._player.config.height;
+			element.addMetadata(LayoutMetadata.LAYOUT_NAMESPACE, elementLayout);
+			
+			container.addMediaElement(element);
+			
+			player.autoDynamicStreamSwitch=true;
+			player.media = element;
+			
+			
+			
+			
 			
 			_item = itm;
 			_position = _timeoffset;
@@ -719,14 +705,27 @@ package com.tanplayer.media
 				item.setLevel(item.getLevel(config.bandwidth, config.width)); 
 			}
 			
-			media = _video;
 			
-			_tanhls.load(itm.file);
+			
+			media = container;
+			
+			
+			
+			
+			
+			//_stream.play(getURL());
+			//play();
+			
+			
+			clearInterval(_positionInterval);
+			_positionInterval = setInterval(positionInterval, 100);
 			
 			sendMediaEvent(MediaEvent.LOADEDJWPLAYER_MEDIA);
 			setState(PlayerState.BUFFERING);
 			sendBufferEvent(0, 0);
-			setVolume(config.mute ? 0 : config.volume);
+			streamVolume(config.mute ? 0 : config.volume);
+			
+			onClientData();
 		}
 		
 		//		public function SettateIdle():void
@@ -734,58 +733,109 @@ package com.tanplayer.media
 		//			setState(PlayerState.IDLE);
 		//		}
 		
-		/** Get metadata information from netstream class. **/
-		public function onClientData(dat:Object):void 
-		{
-//			if (!dat) return;
-//			if (dat.width) 
-//			{
-//				_video.width = dat.width;
-//				_video.height = dat.height;
-//				
-//				resize(_width, _height);
-//			}
-//			
-//			if (dat['duration'] && item.duration <= 0) 
-//			{
-//				
-//				//trace(item.duration);
-//			}
-//			
-//			
-//			if (dat['type'] == 'metadata' && !_meta) 
-//			{
-//				_meta = true;
-//				if (dat['seekpoints'])
-//				{
-//					_mp4 = true;
-//					_keyframes = convertSeekpoints(dat['seekpoints']);
-//				} else {
-//					_mp4 = false;
-//					_keyframes = dat['keyframes'];
-//				}
-//				if (item.start > 0) {
-//					seek(item.start);
-//				}
-//			}
-//			sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_META, {metadata: dat});
-		}
+		
 		
 		
 		/** Pause playback. **/
 		override public function pause():void 
 		{
-			//fastSlowTimer.stop();
-			_tanhls.stream.pause();
-			super.pause();
+			
+			if (player.canPause)
+			{
+				player.pause();
+				super.pause();
+			}
 		}
 		
 		
 		/** Resume playing. **/
 		override public function play():void 
 		{
-			_tanhls.stream.resume();
-			super.play();
+			//fastSlowTimer.stop();
+			//_stream.resume();
+			if (!_positionInterval) 
+			{
+				_positionInterval = setInterval(positionInterval, 100);
+			}
+			
+			
+			if (!player.playing)
+			{
+				if (player.canPlay)
+				{
+					player.play();
+					super.play();
+				}
+					
+			}
+			
+		}
+		
+		
+		/** Interval for the position progress **/
+		protected function positionInterval():void 
+		{
+			
+/*			//_position = Math.round(_stream.time * 10) / 10;
+			var percentoffset:Number;
+			if (_mp4) 
+			{
+				_position += _timeoffset;
+			}
+			
+			var bufferPercent:Number;
+			var bufferFill:Number;
+			if (item.duration > 0) {
+				//percentoffset =  Math.round(_timeoffset /  item.duration * 100);
+				//bufferPercent = (_stream.bytesLoaded / _stream.bytesTotal) * (1 - _timeoffset / item.duration) * 100;
+				//var bufferTime:Number = _stream.bufferTime < (item.duration - position) ? _stream.bufferTime : Math.round(item.duration - position);
+				//bufferFill = _stream.bufferTime == 0 ? 0 : Math.ceil(_stream.bufferLength / bufferTime * 100);
+			} else {
+				percentoffset = 0;
+				bufferPercent = 0;
+				//bufferFill = _stream.bufferLength/_stream.bufferTime * 100;
+			}
+			
+//			if (!_bandwidthChecked && _stream.bytesLoaded > 0 && _stream.bytesLoaded < _stream.bytesTotal) {
+//				_bandwidthChecked = true;
+//				clearTimeout(_bandwidthTimeout);
+//				//_bandwidthTimeout = setTimeout(checkBandwidth, _bandwidthDelay, _stream.bytesLoaded);
+//			}
+			
+			if (bufferFill < 25 && state == PlayerState.PLAYING) {
+				_bufferFull = false;
+				//_stream.pause();
+				setState(PlayerState.BUFFERING);
+			} else if (bufferFill > 95 && state == PlayerState.BUFFERING && _bufferFull == false) {
+				_bufferFull = true;
+				sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_BUFFER_FULL);
+			}
+			
+			if (!_bufferingComplete) {
+				if ((bufferPercent + percentoffset) == 100 && _bufferingComplete == false) {
+					_bufferingComplete = true;
+				}
+				sendBufferEvent(bufferPercent, _timeoffset);
+			}
+			
+			if (state != PlayerState.PLAYING) {
+				return;
+			}
+			
+			if (_position < item.duration) 
+			{
+				if (_position >= 0) 
+				{
+					//每
+					//trace("item._position:::"+_position);
+					sendMediaEvent(MediaEvent.JWPLAYER_MEDIA_TIME, {position: _position, duration: item.duration, offset: _timeoffset});
+				}
+			} 
+			else if (item.duration > 0) 
+			{
+				// Playback completed
+				complete();
+			}*/
 		}
 		
 		/** Handle a resize event **/
@@ -805,11 +855,22 @@ package com.tanplayer.media
 		override public function seek(pos:Number):void 
 		{
 			trace("httpseek"+pos);
-			//var off:Number = getOffset(pos);
-			_tanhls.stream.seek(pos);
-			super.seek(pos);
+			
+			var seekTarget:Number = pos;
+			latestSeekTarget = seekTarget;
+			
+			if (player.canSeek)
+			{
+				player.seek(seekTarget);
+			}
+				
 			
 			
+//			var off:Number = getOffset(pos);
+//			super.seek(pos);
+//			clearInterval(_positionInterval);
+//			_positionInterval = undefined;
+//			
 //			if (off < _byteoffset || off >= _byteoffset + _stream.bytesLoaded) 
 //			{
 //				_timeoffset = _position = getOffset(pos, true);
@@ -818,7 +879,18 @@ package com.tanplayer.media
 //			} 
 //			else 
 //			{
-//				
+//				if (state == PlayerState.PAUSED) 
+//				{
+//					_stream.resume();
+//				}
+//				if (_mp4) 
+//				{
+//					_stream.seek(getOffset(_position - _timeoffset, true));
+//				}
+//				else 
+//				{
+//					_stream.seek(getOffset(_position, true));
+//				}
 //				play();
 //			}
 		}
@@ -866,8 +938,16 @@ package com.tanplayer.media
 		/** Destroy the HTTP stream. **/
 		override public function stop():void 
 		{
-			_tanhls.stream.close();
-			
+//			if (_stream.bytesLoaded + _byteoffset < _stream.bytesTotal) 
+//			{
+//				_stream.close();
+//			} 
+//			else 
+//			{
+//				_stream.pause();
+//			}
+			clearInterval(_positionInterval);
+			_positionInterval = undefined;
 			_position = _byteoffset = _timeoffset = 0;
 			_keyframes = undefined;
 			_bandwidthChecked = false;
@@ -877,10 +957,21 @@ package com.tanplayer.media
 		
 		
 		/** Set the volume level. **/
-		override public function setVolume(vol:Number):void 
-		{
-			_tanhls.stream.soundTransform = new SoundTransform(vol/100);
+		override public function setVolume(vol:Number):void {
+			streamVolume(vol);
 			super.setVolume(vol);
 		}
-	}
+		
+		/** Set the stream's volume, without sending a volume event **/
+		protected function streamVolume(level:Number):void 
+		{
+//			_transformer.volume = level / 100;
+//			if (_stream) {
+//				_stream.soundTransform = _transformer;
+//			}
+			
+			player.volume=(level/100);
+		}
+		
+		}
 }

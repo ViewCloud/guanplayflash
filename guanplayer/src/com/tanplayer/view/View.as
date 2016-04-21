@@ -213,6 +213,7 @@ package com.tanplayer.view
 			
 			redraw();
 			
+			(_model.media as M3u8MediaProvider).M3u8MediaInit();
 		}
 		
 		protected function setupRightClick():void 

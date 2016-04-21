@@ -41,7 +41,7 @@ package com.tanplayer.events {
 	     *  @eventType jwplayerMediaBufferFull
 		 */
 		public static var JWPLAYER_MEDIA_BUFFER_FULL:String = "jwplayerMediaBufferFull";
-
+		public static var M3U8_PLAY:String = "m3u8Play";
 		/**
 	     *  The <code>MediaEvent.JWPLAYER_MEDIA_ERROR</code> constant defines the value of the 
      	 *  <code>type</code> property of the event object for a <code>jwplayerMediaError</code> event.

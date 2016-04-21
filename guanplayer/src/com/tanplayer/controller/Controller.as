@@ -1104,12 +1104,12 @@ package com.tanplayer.controller
 		
 		private function FirstPlay():void
 		{
-			
+			streamType=_player.config.streamtype;
 			//vodType=mediaArr[0].format;
 			
 			if(streamType=="M3U8")
 			{
-				_model.playlist.currentItem.file="http://admin.ea372.m3u8";//换成https
+				_model.playlist.currentItem.file=_model.playlist.currentItem.file;//换成https
 				//_model.playlist.currentItem.file="http://www.streambox.fr/playlists/test_001/stream.m3u8";
 				//
 				//_model.playlist.currentItem.file="http://playertest.longtailvideo.com/adaptive/captions/playlist.m3u8";
@@ -1160,13 +1160,13 @@ package com.tanplayer.controller
 			}
 			else
 			{
-				///live/hks
-				_model.playlist.currentItem.streamer="rtmp://115.182.75.8/live";
-				_model.playlist.currentItem.file="gee";
+				_model.playlist.currentItem.provider="";
 				
 				//mediaArr[0].urls[1];//换成https
 				
 				_model._currentPlayURL = _model.playlist.currentItem.streamer+"*"+_model.playlist.currentItem.file;
+				
+				
 				load(_model.playlist.currentItem);//分析播放列表判断流的类型
 				//开始加载视频准备播放
 				trace("当前流类型：："+_model.media);
@@ -1433,8 +1433,8 @@ package com.tanplayer.controller
 				{ 
 					item.streamer = _model.config.streamer; 
 				}
-				
-				//if (!item.provider) //判断流类型
+				//判断流类型
+				//if (!item.provider) 
 				//{ 
 					item.provider = JWParser.getProvider(item); 
 				//}
@@ -1582,6 +1582,9 @@ package com.tanplayer.controller
 			}
 			
 		}
+		
+		
+		
 		
 		private var intervalId:uint;
 		
