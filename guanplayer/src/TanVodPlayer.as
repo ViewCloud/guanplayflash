@@ -4,7 +4,6 @@ package
 	import com.tanplayer.player.Player;
 	import com.tanplayer.utils.Configger;
 	import com.tanplayer.utils.RootReference;
-	
 	import flash.display.DisplayObject;
 	import flash.display.Loader;
 	import flash.display.MovieClip;
@@ -20,7 +19,6 @@ package
 	import flash.text.*;
 	import flash.utils.Timer;
 	import flash.utils.setTimeout;
-	
 	import org.danmu.event.EventBus;
 	import org.danmu.event.MukioEvent;
 	
@@ -42,9 +40,6 @@ package
 			//var swfurl:String =this.loaderInfo.url;//获取url网址
 			//swfurl=swfurl.replace("TanPlayer.swf","GgPlugin.swf");
 			//trace(swfurl);
-			
-			
-			
 			
 			
 			//var ddf:Timer=new Timer(1000);
