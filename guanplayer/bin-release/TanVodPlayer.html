@@ -1,0 +1,198 @@
+<!-- saved from url=(0014)about:internet -->
+<html lang="en">
+<meta charset="UTF-8"> 
+ 
+<button type="button" onclick="a();" >暂停1</button>
+<button type="button" onclick="c();">播放</button>
+<button type="button" onclick="b();">高码流</button>
+<button type="button" onclick="red5Services();">red5服务器</button>
+<button type="button" onclick="p2pServices();">p2p服务器</button>
+<button type="button" onclick="nextji();">下一集</button>
+<button type="button" onclick="prevji();">上一集</button>
+<script> 
+ 
+function a() 
+{
+   jwplayer_Pause();
+}
+ 
+function nextji()
+{
+   jwplayer_Nextji();
+}
+ 
+function prevji()
+{
+   jwplayer_Prevji();
+}
+ 
+function kuaijing() 
+{
+   jwplayer_Kuaijing();
+}
+ 
+function kuaitui() 
+{
+   jwplayer_Kuaitui();
+}
+ 
+function kuaijin()
+{
+   jwplayer_Kuaijing();
+}
+ 
+function b() 
+{
+   jwplayer_ChangeKbpsGao();
+}
+ 
+function p2pServices() 
+{
+    thisMovie("mpl").p2pServices();
+}
+ 
+function red5Services() 
+{
+     thisMovie("mpl").red5Services();
+}
+ 
+function c() 
+{
+  jwplayer_Play();
+}
+ 
+function d() 
+{
+  jwplayer_queryPlayStatus("imd");
+   
+}
+
+</script>
+<!------------------------------------------------------------------------------------------>
+<!--在HTML中嵌入SWF---START---->
+    <script type='text/javascript' src='swfobject.js'>
+	</script> 
+    width:<input id ="width" type="text"><br>height:<input id="height" type="text"><button onclick=resize();>resize</button>
+	<div id='mediaspace' style="width:680px;height:460px">This text will be replaced</div> 
+	<script type='text/javascript'>
+		
+		var so = new SWFObject('TanVodPlayer.swf','mpl','100%','100%','9');
+		
+		so.addParam('allowfullscreen','true');
+		so.addParam('allowscriptaccess','always');
+		so.addParam('wmode','direct');
+		so.addVariable('autostart', 'true');
+	    so.addVariable('reportplaytime', '1');
+	    so.addVariable('showtanmu', 'true');
+	    //so.addVariable('videoid', '43359989-acc2-4644-8546-aa694581b663');
+	    so.addVariable('videoid', 'dbdf4ac3bed84f44a9bade194432f8de');
+	    so.addVariable('isvr', 'true');
+	    so.addVariable('file', 'http://tan14.cn:8088/1.f4v');
+	    
+	    so.write('mediaspace');
+	   
+    </script>
+	
+	
+	
+<!--在HTML中嵌入SWF END------->
+<!------------------------------------------------------------------------------------------>
+ 
+ 
+<!------------------------------------------------------------------------------------------>
+ 
+<!-- JS调用AS的函数 -->
+<script language="javascript"> 
+//调用flash中的方法，"swfId"为html页中swf的id
+//5.插广告
+function jwplayer_insertAD() 
+{
+  thisMovie("mpl").jwplayer_insertAD("D://work//pic//ml0092.jpg")
+}
+ 
+function jwplayer_ChangeKbpsDi() 
+{
+  thisMovie("mpl").jwplayer_ChangeKbps("http://58.240.173.22/sohu/3//111/34/B1h0XQZX3DxeU33kfOgIq2.mp4?key=xekfawh732pdw3w9GfOybhfNKqfxbhxmQXHQfA..");
+}
+ 
+function jwplayer_ChangeKbpsGao() 
+{
+  //thisMovie("mpl").jwplayer_ChangeKbps("http://115.236.102.170/sohu/4//109/94/NhaMRadZxv4OgmWXXM7Op6.mp4?key=8ed0K87EOvTxIHyZxkqg-7hcKDOh4RezIlUkw_tTBkg.");
+  thisMovie("mpl").jwplayer_ChangeKbps("http://115.238.138.6/sohu/3//127/155/Oc6GQOVvZsoEOuljgjUWC5.mp4?key=B2R_dUgPjE2dXX800hex2UhAEWhloCI2RvF_iA..");
+}
+ 
+function jwplayer_Nextji() 
+{
+  thisMovie("mpl").jwplayer_NextPlayer("4d9d321c6f1b4608a2df327e344a6520");
+}
+ 
+function jwplayer_Prevji()
+{
+  thisMovie("mpl").jwplayer_NextPlayer("43359989-acc2-4644-8546-aa694581b663");
+ 
+}
+function jwplayer_ChangeKbpsZhong() 
+{
+  //thisMovie("mpl").jwplayer_ChangeKbps("http://58.240.173.10/sohu/9//177/106/RZTE3I2E0DRtid02kIyWh7.mp4?key=qSrJmmdJVQDLEtw7D4jwoD3n6zqPmpvLQIvZOA..");
+    thisMovie("mpl").jwplayer_ChangeKbps("http://122.70.130.55:8090/2.flv");
+}
+ 
+ 
+ 
+function jwplayer_Kuaitui() 
+{
+   thisMovie("mpl").jwplayer_SlowPlayer();
+}
+function jwplayer_Kuaijing() 
+{
+  thisMovie("mpl").jwplayer_FastPlayer();
+}
+ 
+function jwplayer_Pause() 
+{
+  thisMovie("mpl").jwplayer_Pause();
+}
+function jwplayer_Play() 
+{
+   thisMovie("mpl").jwplayer_Play();
+}
+ 
+ 
+ 
+ 
+ 
+ 
+//浏览器关闭
+function close()
+{
+   alert("sdfe");
+   thisMovie("mpl").ie_close();
+}
+ 
+ 
+ 
+ 
+ <!-- AS调用JS的函数 start-->
+ 
+    function jwplayer_tracking(str)
+    {
+       //alert("flash调用Js");
+    }
+<!-- AS调用JS的函数end-->
+ 
+ 
+ 
+//搭建js与flash互通的环境
+function thisMovie(movieName) {
+if (navigator.appName.indexOf("Microsoft") != -1) {
+   return window[movieName]
+}else{
+   return document[movieName]
+}
+}
+</script>
+ 
+<!-- JS调用AS的函数 end-->
+<!------------------------------------------------------------------------------------------>
+</html>
+
