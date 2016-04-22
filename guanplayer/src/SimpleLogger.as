@@ -2,9 +2,7 @@ package
 {
 	import org.osmf.logging.Logger;
 	
-	/**
 	
-	 */
 	public class SimpleLogger extends Logger 
 	{
 		private var className:String;
